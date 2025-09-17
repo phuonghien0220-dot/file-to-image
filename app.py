@@ -62,6 +62,36 @@ def parse_page_range(page_range, total_pages):
     page_ids = sorted(list(set([p for p in page_ids if 0 <= p < total_pages])))
     return page_ids
 
+def read_excel_range(file, sheet_name, cell_range):
+    df = pd.read_excel(file, sheet_name=sheet_name, header=None)
+    if not cell_range:
+        return df
+    # Parse cell range "A3:H20"
+    start, end = cell_range.upper().split(":")
+    # Convert column letters to indices
+    def col2num(col):
+        num = 0
+        for c in col:
+            num = num * 26 + ord(c) - ord('A') + 1
+        return num - 1
+    start_col, start_row = '', ''
+    end_col, end_row = '', ''
+    for c in start:
+        if c.isalpha():
+            start_col += c
+        else:
+            start_row += c
+    for c in end:
+        if c.isalpha():
+            end_col += c
+        else:
+            end_row += c
+    srow = int(start_row) - 1
+    erow = int(end_row)
+    scol = col2num(start_col)
+    ecol = col2num(end_col) + 1
+    return df.iloc[srow:erow, scol:ecol]
+
 if convert_btn and uploaded_file:
     st.success(f"✅ Đang xử lý file {uploaded_file.name} ...")
     temp_dir = tempfile.mkdtemp()
@@ -125,26 +155,14 @@ if convert_btn and uploaded_file:
             sheets = xls.sheet_names
 
         for sh in sheets:
-            df = pd.read_excel(excel_path, sheet_name=sh)
-            df_show = df
-            if cell_range:
-                try:
-                    # Chuyển vùng dữ liệu sang dạng slice
-                    start, end = cell_range.replace(" ", "").split(":")
-                    start_row = int(''.join(filter(str.isdigit, start))) - 1
-                    start_col = ''.join(filter(str.isalpha, start))
-                    end_row = int(''.join(filter(str.isdigit, end))) - 1
-                    end_col = ''.join(filter(str.isalpha, end))
-                    col_list = list(df.columns)
-                    col_idx_start = col_list.index(start_col)
-                    col_idx_end = col_list.index(end_col)
-                    df_show = df.iloc[start_row:end_row+1, col_idx_start:col_idx_end+1]
-                except Exception as e:
-                    st.error(f"Vùng dữ liệu không hợp lệ: {e}")
-                    df_show = df
-            fig, ax = plt.subplots(figsize=(8, 4))
+            try:
+                df_show = read_excel_range(excel_path, sh, cell_range)
+            except Exception as e:
+                st.error(f"Vùng dữ liệu không hợp lệ: {e}")
+                df_show = pd.read_excel(excel_path, sheet_name=sh, header=None)
+            fig, ax = plt.subplots(figsize=(df_show.shape[1]*1.1, df_show.shape[0]*0.5))
             ax.axis('off')
-            ax.table(cellText=df_show.values, colLabels=df_show.columns, loc='center')
+            table = ax.table(cellText=df_show.values, loc='center', cellLoc='center', colLabels=None)
             plt.tight_layout()
             img_path = os.path.join(temp_dir, f"{sh}.{img_format.lower()}")
             plt.savefig(img_path, dpi=dpi)
