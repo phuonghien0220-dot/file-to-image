@@ -1,113 +1,106 @@
 import streamlit as st
-import fitz  # PyMuPDF để xử lý PDF
-from docx2pdf import convert as docx2pdf
-from pdf2image import convert_from_path
-import tempfile
-import os
-import zipfile
+import fitz  # PyMuPDF for PDF
+from docx import Document
 import pandas as pd
 import matplotlib.pyplot as plt
-from io import BytesIO
-from PIL import Image
+import tempfile
+import os
 
-st.set_page_config(page_title="Chuyển file sang ảnh", layout="wide")
+st.set_page_config(page_title="Chuyển File sang Ảnh", layout="wide")
 
-st.title("📄➡️🖼️ Chuyển đổi file sang ảnh")
+st.title("📄➡️🖼️ Tệp thành hình ảnh")
 
-uploaded_file = st.file_uploader("Tải file Word (.docx, .doc), PDF, Excel (.xls, .xlsx)", 
-                                 type=["docx", "doc", "pdf", "xls", "xlsx"])
+col1, col2 = st.columns([2,1])
 
-def save_and_return_path(file):
-    tmp_dir = tempfile.mkdtemp()
-    file_path = os.path.join(tmp_dir, file.name)
-    with open(file_path, "wb") as f:
-        f.write(file.getbuffer())
-    return file_path, tmp_dir
+with col1:
+    uploaded_file = st.file_uploader(
+        "Tải lên File", 
+        type=["doc", "docx", "pdf", "xls", "xlsx"],
+        help="Hỗ trợ: .doc, .docx, .pdf, .xls, .xlsx"
+    )
 
-if uploaded_file:
-    file_path, tmp_dir = save_and_return_path(uploaded_file)
-    file_ext = uploaded_file.name.split(".")[-1].lower()
+with col2:
+    st.subheader("⚙️ Tùy chọn chuyển đổi")
 
-    # Xử lý PDF
-    if file_ext == "pdf":
-        doc = fitz.open(file_path)
-        total_pages = len(doc)
-        st.info(f"📑 File PDF có {total_pages} trang")
+    file_type = None
+    if uploaded_file:
+        if uploaded_file.name.endswith((".doc", ".docx", ".pdf")):
+            file_type = "word_pdf"
+        elif uploaded_file.name.endswith((".xls", ".xlsx")):
+            file_type = "excel"
 
-        selected_pages = st.multiselect(
-            "Chọn trang muốn chuyển", list(range(1, total_pages+1)), default=[1]
-        )
+    if file_type == "word_pdf":
+        page_choice = st.radio("Chọn trang:", ["Tất cả trang", "Chọn khoảng trang"])
+        if page_choice == "Chọn khoảng trang":
+            page_range = st.text_input("Nhập khoảng trang (VD: 1-3,5)")
 
-        if st.button("Chuyển sang ảnh"):
-            img_list = []
-            for p in selected_pages:
-                page = doc.load_page(p-1)
-                pix = page.get_pixmap()
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                img_list.append(img)
+    if file_type == "excel":
+        excel_option = st.radio("Chọn Sheet:", ["Tất cả", "Chọn một"])
+        if excel_option == "Chọn một":
+            sheet_name = st.text_input("Nhập tên sheet (VD: Sheet1)")
+        cell_range = st.text_input("Nhập vùng dữ liệu (VD: A3:H20)", "")
 
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w") as zipf:
-                for i, img in enumerate(img_list, 1):
-                    img_bytes = BytesIO()
-                    img.save(img_bytes, format="PNG")
-                    zipf.writestr(f"page_{i}.png", img_bytes.getvalue())
-            st.download_button("⬇️ Tải ảnh (ZIP)", zip_buffer.getvalue(), "images.zip")
+    img_format = st.radio("Định dạng ảnh", ["PNG", "JPG", "WebP", "BMP"])
+    dpi = st.slider("Chất lượng ảnh (DPI)", 72, 300, 150)
 
-    # Xử lý Word
-    elif file_ext in ["docx", "doc"]:
-        # Chuyển Word sang PDF trước
-        pdf_path = os.path.join(tmp_dir, "temp.pdf")
-        docx2pdf(file_path, pdf_path)
+    convert_btn = st.button("🚀 Chuyển đổi")
 
-        doc = fitz.open(pdf_path)
-        total_pages = len(doc)
-        st.info(f"📑 File Word có {total_pages} trang (đã chuyển sang PDF)")
+# =============================
+# Hàm xử lý (giả lập)
+# =============================
+if convert_btn and uploaded_file:
+    st.success(f"✅ Đang xử lý file {uploaded_file.name} ...")
 
-        selected_pages = st.multiselect(
-            "Chọn trang muốn chuyển", list(range(1, total_pages+1)), default=[1]
-        )
+    if file_type == "word_pdf":
+        st.info("👉 Hiện tại demo chỉ hỗ trợ PDF. Word sẽ cần chuyển sang PDF trước.")
+        # Ví dụ xử lý PDF
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(uploaded_file.read())
+            pdf_path = tmp.name
+        pdf = fitz.open(pdf_path)
 
-        if st.button("Chuyển sang ảnh"):
-            img_list = []
-            for p in selected_pages:
-                page = doc.load_page(p-1)
-                pix = page.get_pixmap()
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                img_list.append(img)
+        for page_num in range(len(pdf)):
+            page = pdf[page_num]
+            pix = page.get_pixmap(dpi=dpi)
+            img_path = f"page_{page_num+1}.{img_format.lower()}"
+            pix.save(img_path)
+            st.image(img_path, caption=f"Trang {page_num+1}")
+            with open(img_path, "rb") as f:
+                st.download_button(
+                    f"Tải ảnh Trang {page_num+1}",
+                    f,
+                    file_name=img_path,
+                    mime="image/"+img_format.lower()
+                )
 
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w") as zipf:
-                for i, img in enumerate(img_list, 1):
-                    img_bytes = BytesIO()
-                    img.save(img_bytes, format="PNG")
-                    zipf.writestr(f"page_{i}.png", img_bytes.getvalue())
-            st.download_button("⬇️ Tải ảnh (ZIP)", zip_buffer.getvalue(), "images.zip")
+    elif file_type == "excel":
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(uploaded_file.read())
+            excel_path = tmp.name
+        xls = pd.ExcelFile(excel_path)
 
-    # Xử lý Excel
-    elif file_ext in ["xls", "xlsx"]:
-        xls = pd.ExcelFile(file_path)
-        sheet_name = st.selectbox("Chọn sheet", xls.sheet_names)
-        df = pd.read_excel(file_path, sheet_name=sheet_name)
+        if excel_option == "Tất cả":
+            sheets = xls.sheet_names
+        else:
+            sheets = [sheet_name]
 
-        st.write("📊 Dữ liệu trong sheet")
-        st.dataframe(df.head(10))
-
-        cell_range = st.text_input("Nhập vùng dữ liệu (ví dụ A3:H20, để trống nếu muốn toàn bộ)", "")
-
-        if st.button("Chuyển sang ảnh"):
+        for sh in sheets:
+            df = pd.read_excel(excel_path, sheet_name=sh)
             if cell_range:
-                df_range = pd.read_excel(file_path, sheet_name=sheet_name, usecols=cell_range)
-            else:
-                df_range = df
-
-            fig, ax = plt.subplots(figsize=(10, 5))
-            ax.axis("off")
-            tbl = ax.table(cellText=df_range.values, colLabels=df_range.columns, cellLoc="center", loc="center")
-            tbl.auto_set_font_size(False)
-            tbl.set_fontsize(10)
-            tbl.scale(1.2, 1.2)
-
-            img_buf = BytesIO()
-            plt.savefig(img_buf, format="png", bbox_inches="tight")
-            st.download_button("⬇️ Tải ảnh Excel", img_buf.getvalue(), "excel.png", mime="image/png")
+                df = df.loc[
+                    df.index[int(cell_range[1:-2])-1: int(cell_range[-2:])],
+                ]
+            fig, ax = plt.subplots(figsize=(8,4))
+            ax.axis('off')
+            tbl = ax.table(cellText=df.values, colLabels=df.columns, loc='center')
+            plt.tight_layout()
+            img_path = f"{sh}.{img_format.lower()}"
+            plt.savefig(img_path, dpi=dpi)
+            st.image(img_path, caption=f"Sheet: {sh}")
+            with open(img_path, "rb") as f:
+                st.download_button(
+                    f"Tải ảnh Sheet {sh}",
+                    f,
+                    file_name=img_path,
+                    mime="image/"+img_format.lower()
+                )
