@@ -4,5 +4,4 @@ pandas
 matplotlib
 docx2pdf
 openpyxl
-mammoth
 python-docx
