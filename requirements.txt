@@ -1,9 +1,8 @@
 streamlit
-python-docx
-docx2pdf
-PyMuPDF
-pdf2image
+pymupdf
 pandas
-openpyxl
 matplotlib
-Pillow
+docx2pdf
+openpyxl
+mammoth
+python-docx
