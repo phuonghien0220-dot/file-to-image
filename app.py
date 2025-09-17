@@ -1,10 +1,8 @@
 import streamlit as st
 import fitz  # PyMuPDF for PDF
-from docx import Document
 import pandas as pd
 import matplotlib.pyplot as plt
-import tempfile
-import os
+import tempfile, os, zipfile
 
 st.set_page_config(page_title="Chuyển File sang Ảnh", layout="wide")
 
@@ -30,15 +28,15 @@ with col2:
             file_type = "excel"
 
     if file_type == "word_pdf":
-        page_choice = st.radio("Chọn trang:", ["Tất cả trang", "Chọn khoảng trang"])
-        if page_choice == "Chọn khoảng trang":
+        page_choice = st.radio("Chọn trang:", ["Tất cả", "Khoảng trang"])
+        if page_choice == "Khoảng trang":
             page_range = st.text_input("Nhập khoảng trang (VD: 1-3,5)")
 
     if file_type == "excel":
-        excel_option = st.radio("Chọn Sheet:", ["Tất cả", "Chọn một"])
-        if excel_option == "Chọn một":
-            sheet_name = st.text_input("Nhập tên sheet (VD: Sheet1)")
-        cell_range = st.text_input("Nhập vùng dữ liệu (VD: A3:H20)", "")
+        excel_option = st.radio("Chọn Sheet:", ["Tất cả", "Một sheet"])
+        if excel_option == "Một sheet":
+            sheet_name = st.text_input("Tên sheet (VD: Sheet1)")
+        cell_range = st.text_input("Vùng dữ liệu (VD: A3:H20)", "")
 
     img_format = st.radio("Định dạng ảnh", ["PNG", "JPG", "WebP", "BMP"])
     dpi = st.slider("Chất lượng ảnh (DPI)", 72, 300, 150)
@@ -46,14 +44,15 @@ with col2:
     convert_btn = st.button("🚀 Chuyển đổi")
 
 # =============================
-# Hàm xử lý (giả lập)
+# Xử lý khi bấm nút
 # =============================
 if convert_btn and uploaded_file:
     st.success(f"✅ Đang xử lý file {uploaded_file.name} ...")
+    temp_dir = tempfile.mkdtemp()
+    output_files = []
 
+    # ==== PDF ====
     if file_type == "word_pdf":
-        st.info("👉 Hiện tại demo chỉ hỗ trợ PDF. Word sẽ cần chuyển sang PDF trước.")
-        # Ví dụ xử lý PDF
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(uploaded_file.read())
             pdf_path = tmp.name
@@ -62,17 +61,11 @@ if convert_btn and uploaded_file:
         for page_num in range(len(pdf)):
             page = pdf[page_num]
             pix = page.get_pixmap(dpi=dpi)
-            img_path = f"page_{page_num+1}.{img_format.lower()}"
+            img_path = os.path.join(temp_dir, f"page_{page_num+1}.{img_format.lower()}")
             pix.save(img_path)
-            st.image(img_path, caption=f"Trang {page_num+1}")
-            with open(img_path, "rb") as f:
-                st.download_button(
-                    f"Tải ảnh Trang {page_num+1}",
-                    f,
-                    file_name=img_path,
-                    mime="image/"+img_format.lower()
-                )
+            output_files.append(img_path)
 
+    # ==== Excel ====
     elif file_type == "excel":
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
             tmp.write(uploaded_file.read())
@@ -86,21 +79,33 @@ if convert_btn and uploaded_file:
 
         for sh in sheets:
             df = pd.read_excel(excel_path, sheet_name=sh)
-            if cell_range:
-                df = df.loc[
-                    df.index[int(cell_range[1:-2])-1: int(cell_range[-2:])],
-                ]
             fig, ax = plt.subplots(figsize=(8,4))
             ax.axis('off')
-            tbl = ax.table(cellText=df.values, colLabels=df.columns, loc='center')
+            ax.table(cellText=df.values, colLabels=df.columns, loc='center')
             plt.tight_layout()
-            img_path = f"{sh}.{img_format.lower()}"
+            img_path = os.path.join(temp_dir, f"{sh}.{img_format.lower()}")
             plt.savefig(img_path, dpi=dpi)
-            st.image(img_path, caption=f"Sheet: {sh}")
-            with open(img_path, "rb") as f:
-                st.download_button(
-                    f"Tải ảnh Sheet {sh}",
-                    f,
-                    file_name=img_path,
-                    mime="image/"+img_format.lower()
-                )
+            output_files.append(img_path)
+
+    # ==== Tải từng ảnh ====
+    for f in output_files:
+        with open(f, "rb") as file:
+            st.download_button(
+                label=f"Tải {os.path.basename(f)}",
+                data=file,
+                file_name=os.path.basename(f),
+                mime="image/"+img_format.lower()
+            )
+
+    # ==== Tải tất cả (ZIP) ====
+    zip_path = os.path.join(temp_dir, "all_images.zip")
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for f in output_files:
+            zf.write(f, os.path.basename(f))
+    with open(zip_path, "rb") as f:
+        st.download_button(
+            label="📦 Tải tất cả ảnh (ZIP)",
+            data=f,
+            file_name="all_images.zip",
+            mime="application/zip"
+        )
